@@ -5,4 +5,4 @@ This is a clone of the PHP iRODS client from http://www.irods.org/ that has been
 
 PRODS can be downloaded as the release tar ball from http://code.google.com/p/extrods/downloads/list. Or you can use public SVN to check out latest code:
 
-svn checkout http://extrods.googlecode.com/svn/trunk/ extrods-read-only
+    svn checkout http://extrods.googlecode.com/svn/trunk/ extrods-read-only
