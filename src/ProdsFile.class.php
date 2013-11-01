@@ -22,7 +22,7 @@ class ProdsFile extends ProdsPath
  /**
 	* The class constructor
 	*/
-	public function __construct(RODSAccount $account, $path_str, 
+	public function __construct(RODSAccount &$account, $path_str, 
 	  $verify=false, RODSFileStats $stats=NULL)
 	{
 	  $this->l1desc=-1;
@@ -191,6 +191,7 @@ class ProdsFile extends ProdsPath
       $this->conn->lock();
       $this->conn->closeFileDesc($this->l1desc);
       $this->conn->unlock();
+      $this->conn=null; //release the connection
       $this->l1desc=-1;
     }
   }
@@ -303,6 +304,15 @@ class ProdsFile extends ProdsPath
   public function getL1desc()
   {
     return $this->l1desc;
+  }
+  
+ /**
+	* Because RODS server can only do file operations in a single connection, a RODS 
+	* connection is 'reserved' when file is opened, and released when closed.
+	*/
+  public function getConn()
+  {
+    return $this->conn;
   }
   
   /**

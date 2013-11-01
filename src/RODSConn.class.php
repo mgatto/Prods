@@ -34,7 +34,7 @@ class RODSConn
    * @param string $pass passwd 
    * @param string $zone zonename 
    */
-  public function __construct(RODSAccount $account)
+  public function __construct(RODSAccount &$account)
   {
     $this->account=$account;
     $this->connected=false;
@@ -114,8 +114,8 @@ class RODSConn
         $GLOBALS['PRODS_ERR_CODES_REV']["$intInfo"]);
     }
     
-    // get RODS zone name if it's empty, and attempt to use it as user zone.
     /*
+    // get RODS zone name if it's empty, and attempt to use it as user zone.
     if (empty($zone))
     {
        // request misc server infor
@@ -133,22 +133,20 @@ class RODSConn
       }
       $pack=$msg->getBody();
       $zone=$pack->rodsZone;
-      $this->account->zone=$zone;
-    */  
-      //re-connect to RODS server
-      /*
-      $msg=RODSMessage::packConnectMsg($user,$zone);
-      fwrite($conn, $msg);
-      
-      $msg=new RODSMessage();
-      $intInfo=$msg->unpack($conn);
-      if ($intInfo<0)
+      if (empty($zone))
       {
-        throw new RODSException("Connection to '$host:$port' failed.2. User: $user Zone: $zone",
+        throw new RODSException("Connection to '$host:$port' failed.1.6. User: $user Failed to get zone name",
           $GLOBALS['PRODS_ERR_CODES_REV']["$intInfo"]);
-      }
-      */
-    //}
+      }  
+      $this->account->zone=$zone;
+    
+      //re-connect to RODS server
+      $this->disconnect(true);
+      $this->connect();
+      return;
+      
+    }
+    */
     
     // request authentication
     $msg=new RODSMessage("RODS_API_REQ_T",NULL,
@@ -205,15 +203,14 @@ class RODSConn
       if (isset($userinfo['zone']))
         $this->account->zone=$userinfo['zone'];
     }
-    
   }
   
   /**
    * Close the connection (socket) 
    */
-  public function disconnect ()
+  public function disconnect ($force=false)
   {
-    if ($this->connected===false)
+    if ( ($this->connected===false)&&($force!==true) )
       return;
     
     $msg=new RODSMessage("RODS_DISCONNECT_T");
@@ -278,7 +275,7 @@ class RODSConn
   {
     if (!isset($user))
       $user=$this->account->user;
-    
+
     // set selected value
     $select_val=array("COL_USER_ID","COL_USER_NAME","COL_USER_TYPE",
             "COL_USER_ZONE","COL_USER_DN","COL_USER_INFO",
@@ -296,7 +293,15 @@ class RODSConn
       $retval['id']=$que_result["COL_USER_ID"][0];
       $retval['name']=$que_result["COL_USER_NAME"][0];
       $retval['type']=$que_result["COL_USER_TYPE"][0];
-      $retval['zone']=$que_result["COL_USER_ZONE"][0];
+      // $retval['zone']=$que_result["COL_USER_ZONE"][0]; This can cause confusion if
+      // username is same as another federated grid - sometimes multiple records are returned.
+      // Changed source to force user to provide a zone until another method is suggested.
+      if ($this->account->zone == "") {
+          $retval['zone']=$que_result["COL_USER_ZONE"][0];
+      }
+      else {
+          $retval['zone']=$this->account->zone;
+      }
       $retval['dn']=$que_result["COL_USER_DN"][0];
       $retval['info']=$que_result["COL_USER_INFO"][0];
       $retval['comment']=$que_result["COL_USER_COMMENT"][0];
@@ -333,14 +338,19 @@ class RODSConn
   
  /**
   * remove a directory
-  * @param string $dirpath input direcotory path string
+  * @param string  $dirpath input direcotory path string
   * @param boolean $recursive whether recursively delete all child files and child directories recursively.
   * @param boolean $force whether force delete the file/dir. If force delete, all files will be wiped physically. Else, they are moved to trash derectory.
   * @param array   $additional_flags An array of keyval pairs (array) reprenting additional flags passed to the server/client message. Each keyval pair is an array with first element repsenting the key, and second element representing the value (default to ''). Supported keys are:
   * -    'irodsRmTrash' - whether this rm is a rmtrash operation
   * -    'irodsAdminRmTrash' - whether this rm is a rmtrash operation done by admin user
+  * @param mixed   $status_update_func It can be an string or array that represents the status update function (see http://us.php.net/manual/en/language.pseudo-types.php#language.types.callback), which can update status based on the server status update. Leave it blank or 'null' if there is no need to update the status. The function will be called with an assossive arry as parameter, supported fields are:
+  * - 'filesCnt' - finished number of files from previous update (normally 10 but not the last update)
+  * - 'lastObjPath' - last object that was processed.
+  * If this function returns 1, progress will be stopped.
   */
-  public function rmdir($dirpath,$recursive=true,$force=false,$additional_flags=array())
+  public function rmdir($dirpath,$recursive=true,$force=false,
+    $additional_flags=array(), $status_update_func=null)
   {
     $options=array();
     if ($force===true)
@@ -364,16 +374,50 @@ class RODSConn
         $GLOBALS['PRODS_API_NUMS']['RM_COLL_AN']); 
     fwrite($this->conn, $msg->pack());  // send it
     $msg=new RODSMessage();
-    $intInfo=(int) $msg->unpack($this->conn); 
+    $intInfo=(int) $msg->unpack($this->conn);
+    while ($msg->getBody() instanceof RP_CollOprStat)
+    { 
+      if (is_callable($status_update_func)) // call status update function if requested
+      {
+        $status= call_user_func($status_update_func, 
+          array(
+            "filesCnt" => $msg->getBody()->filesCnt,
+            "lastObjPath" => $msg->getBody()->lastObjPath
+          )
+        ); 
+        if (false===$status)
+          throw new Exception("status_update_func failed!");
+        else if (1==$status)
+        {
+          return;  
+        }    
+      }
+            
+      if ($intInfo==0) //stop here if intinfo =0 (process completed)
+        break;
+      $this->replyStatusPacket();
+      $msg=new RODSMessage();
+      $intInfo=(int) $msg->unpack($this->conn);
+    }
+    
     if ($intInfo<0)
     {
       if (RODSException::rodsErrCodeToAbbr($intInfo)=='CAT_NO_ROWS_FOUND')
       {
         return;
       }
-      throw new RODSException("RODSConn::mkdir has got an error from the server",
+      throw new RODSException("RODSConn::rmdir has got an error from the server",
           $GLOBALS['PRODS_ERR_CODES_REV']["$intInfo"]);
     }
+  }
+  
+  // this is a temp work around for status packet reply.
+  // in status packet protocol, the server gives a status update packet: 
+  // SYS_SVR_TO_CLI_COLL_STAT (99999996)
+  // and it expects an  integer only SYS_CLI_TO_SVR_COLL_STAT_REPLY (99999997)
+  private function replyStatusPacket()
+  {
+    fwrite($this->conn, pack("N",99999997));  
   }
   
   /**
@@ -628,8 +672,9 @@ class RODSConn
                 
     $que_result= $this->genQuery(
       array("COL_DATA_NAME","COL_D_DATA_ID","COL_DATA_TYPE_NAME",
-        "COL_D_RESC_NAME","COL_DATA_SIZE","COL_D_OWNER_NAME","COL_D_CREATE_TIME",
-        "COL_D_MODIFY_TIME"),
+        "COL_D_RESC_NAME","COL_DATA_SIZE","COL_D_OWNER_NAME","COL_D_OWNER_ZONE",
+        "COL_D_CREATE_TIME",
+        "COL_D_MODIFY_TIME", "COL_D_COMMENTS"),
       $cond, array(), 0, 1, false); 
     if ($que_result===false) return false;
     
@@ -637,11 +682,13 @@ class RODSConn
           $que_result['COL_DATA_NAME'][0],
           $que_result['COL_DATA_SIZE'][0],
           $que_result['COL_D_OWNER_NAME'][0],
+          $que_result['COL_D_OWNER_ZONE'][0],
           $que_result['COL_D_MODIFY_TIME'][0],
           $que_result['COL_D_CREATE_TIME'][0],
           $que_result['COL_D_DATA_ID'][0],
           $que_result['COL_DATA_TYPE_NAME'][0],
-          $que_result['COL_D_RESC_NAME'][0]);
+          $que_result['COL_D_RESC_NAME'][0],
+          $que_result['COL_D_COMMENTS'][0]);
     return $stats;      
   }
   
@@ -1308,9 +1355,16 @@ class RODSConn
         $ret_arr["$label"]=RODSKeyValPair::fromPacket($param->KeyValPair_PI);
       }
       else
+      if ($param->type=='ExecCmdOut_PI')
+      {
+        $label=$param->label;
+	$exec_ret_val =  $param->ExecCmdOut_PI->buf;
+        $ret_arr["$label"]=$exec_ret_val;
+      }
+      else
       {
         throw new RODSException("RODSConn::execUserRule got. ".
-          "an unexpected output praram with type: '$param->type' \n",
+          "an unexpected output param with type: '$param->type' \n",
           "PERR_UNEXPECTED_PACKET_FORMAT");
       }
     }
@@ -1499,8 +1553,9 @@ class RODSConn
     $results = new RODSGenQueResults();
     do {
       // construct RP_GenQueryInp packet
+      $options = 1 | $GLOBALS['PRODS_GENQUE_NUMS']['RETURN_TOTAL_ROW_COUNT'];
       $genque_input_pk= new RP_GenQueryInp($max_result_per_query, 
-        $continueInx, $condkw_pk, $select_pk, $cond_pk, 1, $start);
+        $continueInx, $condkw_pk, $select_pk, $cond_pk, $options, $start);
       
       // contruce a new API request message, with type GEN_QUERY_AN
       $msg=new RODSMessage("RODS_API_REQ_T",$genque_input_pk,
@@ -1523,10 +1578,13 @@ class RODSConn
       $num_row_added=$results->addResults($genque_result_pk);
       $continueInx=$genque_result_pk->continueInx;
       $start=$start+$results->getNumRow();
-    } while ( ($continueInx >= 0) && 
-      ( ($results->getNumRow() < $limit) || ($limit < 0) )  &&
-      ($num_row_added <= $max_result_per_query) &&
-      ($num_row_added <  $results->getTotalCount()) ); 
+    } while ( ($continueInx > 0) &&
+      ( ($results->getNumRow() < $limit) || ($limit < 0) ) );
+      // changed by lisa@renci.org - to address irods chat list problem: [iROD-Chat:6117] PRODS - limited to 500 files
+      // } while ( ($continueInx >= 0) &&
+      // ( ($results->getNumRow() < $limit) || ($limit < 0) )  &&
+      // ($num_row_added <= $max_result_per_query) &&
+      // ($num_row_added <  $results->getTotalCount()) );
     
     return $results;  
   } 

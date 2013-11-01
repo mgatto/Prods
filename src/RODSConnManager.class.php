@@ -39,7 +39,7 @@ class RODSConnManager
     {
       if ($opened_conn->isIdle())
       {
-        $opened_conn->lock();
+        //$opened_conn->lock();
         $account=$opened_conn->getAccount(); //update account if needed...
         return $opened_conn;
       }
@@ -52,9 +52,8 @@ class RODSConnManager
       $id=count($manager->conn_map[$conn_sig]);
       $manager->conn_map[$conn_sig][$id]=$conn;
       $conn->setId($id);
-      $conn->lock();
+      //$conn->lock();
       $account=$conn->getAccount(); //update account if needed...
-      //var_dump($account);
       return $conn;
     }
     

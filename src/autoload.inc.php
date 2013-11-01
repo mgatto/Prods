@@ -16,19 +16,6 @@ function __autoload($className) {
 }
 
 /**
- * autoload classes via spl_autoload_register()
- *
- * @uses classFolder()
- * @param $className string
- */
-spl_autoload_register(function ($className) {
-     $folder = classFolder($className);
-
-     if($folder)
-         require_once($folder.$className.".class.php");
-});
-
-/**
  * search for folders and subfolders with classes
  *
  * @param $className string

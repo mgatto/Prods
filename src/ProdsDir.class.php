@@ -11,15 +11,15 @@ require_once("autoload.inc.php");
 class ProdsDir extends ProdsPath
 {
   /**
-  * @var RODSDirStats 
+  * @var RODSDirStats
   */
   public  $stats;
-  
+
   private $child_dirs;
   private $child_files;
   private $all_children;
   private $position;
-  
+
  /**
 	* Default Constructor.
 	*
@@ -29,7 +29,7 @@ class ProdsDir extends ProdsPath
 	* @param RODSDirStats $stats if the stats for this dir is already known, initilize it here.
 	* @return a new ProdsDir
 	*/
-  public function __construct(RODSAccount $account, $path_str, $verify=false, 
+  public function __construct(RODSAccount &$account, $path_str, $verify=false,
     RODSDirStats $stats=NULL)
   {
     $this->position=0;
@@ -41,10 +41,10 @@ class ProdsDir extends ProdsPath
       {
         throw new RODSException("Directory '$this' does not exist",
           'PERR_PATH_DOES_NOT_EXISTS');
-      } 
+      }
     }
   }
-  
+
  /**
 	* Create a ProdsDir object from URI string.
 	* @param string $path the URI Sting
@@ -56,10 +56,10 @@ class ProdsDir extends ProdsPath
     if (0!=strncmp($path,"rods://",7))
       $path="rods://".$path;
     $url=parse_url($path);
-    
-    $host=isset($url['host'])?$url['host']:''; 
-    $port=isset($url['port'])?$url['port']:'';   
-    
+
+    $host=isset($url['host'])?$url['host']:'';
+    $port=isset($url['port'])?$url['port']:'';
+
     $user='';
     $zone='';
     if (isset($url['user']))
@@ -68,37 +68,40 @@ class ProdsDir extends ProdsPath
         list($user,$zone)=@explode(".",$url['user']);
       else
         $user=$url['user'];
-    }  
-    
+    }
+
     $pass=isset($url['pass'])?$url['pass']:'';
-    
+
     $account=new RODSAccount($host, $port, $user, $pass, $zone);
-    
+
     $path_str=isset($url['path'])?$url['path']:'';
-    
+
     // treat query and fragment as part of name
     if (isset($url['query'])&&(strlen($url['query'])>0))
       $path_str=$path_str.'?'.$url['query'];
     if (isset($url['fragment'])&&(strlen($url['fragment'])>0))
       $path_str=$path_str.'#'.$url['fragment'];
-     
+
     if (empty($path_str))
-      $path_str='/'; 
-    
+      $path_str='/';
+
     return (new ProdsDir($account,$path_str,$verify));
-  }  
-  
+  }
+
  /**
 	* Verify if this dir exist with server. This function shouldn't be called directly, use {@link exists}
 	*/
-  protected function verify()
+  //protected function verify()
+  protected function verify($get_cb=array('RODSConnManager','getConn'),
+                            $rel_cb=array('RODSConnManager', 'releaseConn'))
   {
-    $conn = RODSConnManager::getConn($this->account);
+    //$conn = RODSConnManager::getConn($this->account);
+    $conn = call_user_func($get_cb, &$this->account);
     $this->path_exists= $conn -> dirExists ($this->path_str);
-    RODSConnManager::releaseConn($conn);  
+    //RODSConnManager::releaseConn($conn);
+    call_user_func($rel_cb, $conn);
   }
-  
-  
+
  /**
 	* Resets the directory stream to the beginning of the directory.
 	*/
@@ -106,7 +109,7 @@ class ProdsDir extends ProdsPath
   {
     $this->position=0;
   }
-  
+
  /**
   * get next file or directory from the directory, where the internal iterator points to.
 	* @return next file or directory from the directory. The file always come first and dir comes later. return false on failure
@@ -117,12 +120,12 @@ class ProdsDir extends ProdsPath
       $this->all_children=$this->getAllChildren();
     if (($this->position>=count($this->all_children))||($this->position<0))
       return false;
-    $names=array_keys($this->all_children);  
+    $names=array_keys($this->all_children);
     $ret_val=$this->all_children[$names[$this->position]];
     $this->position++;
     return $ret_val;
   }
-  
+
  /**
   * @return all children (files and dirs) of current dir
 	*/
@@ -133,24 +136,25 @@ class ProdsDir extends ProdsPath
       $this->getChildFiles());
     $this->all_children=array_merge($this->all_children,
       $this->getChildDirs());
-    return $this->all_children;  
+
+    return $this->all_children;
   }
-  
+
  /**
-  * Get children directories of this dir. 
+  * Get children directories of this dir.
 	* @param $orderby An associated array specifying how to sort the result by attributes. See details in method {@link findDirs};
 	* Note that if the current dir is root '/', it will not return '/' as its child, unlike iCommand's current behavior.
 	* @return an array of ProdsDir
 	*/
-  public function getChildDirs(array $orderby=array(), $startingInx=0, 
+  public function getChildDirs(array $orderby=array(), $startingInx=0,
     $maxresults=-1, &$total_num_rows=-1)
   {
     $terms=array("descendantOnly"=>true,"recursive"=>false);
-    return $this->findDirs($terms,$total_num_rows,$startingInx,$maxresults,$orderby);  
+    return $this->findDirs($terms,$total_num_rows,$startingInx,$maxresults,$orderby);
   }
-  
+
  /**
-	* Get children files of this dir. 
+	* Get children files of this dir.
 	*
 	* @param array $orderby An associated array specifying how to sort the result by attributes. See details in method {@link findFiles};
 	* @param int $startingInx starting index of all files. default is 0.
@@ -159,27 +163,32 @@ class ProdsDir extends ProdsPath
 	* @param boolean $logical_file whether to return only logical files, if false, it returns all replica with resource name, if true, it returns only 1 logical file, with num_replica available in the stats. default is false.
 	* @return an array of ProdsFile
 	*/
-  public function getChildFiles(array $orderby=array(), $startingInx=0, 
+  public function getChildFiles(array $orderby=array(), $startingInx=0,
     $maxresults=-1, &$total_num_rows=-1, $logicalFile=false)
   {
     $terms=array("descendantOnly"=>true,"recursive"=>false, 'logicalFile'=>$logicalFile);
-    return $this->findFiles($terms,$total_num_rows,$startingInx,$maxresults,$orderby); 
+    return $this->findFiles($terms,$total_num_rows,$startingInx,$maxresults,$orderby);
   }
-  
-  
+
+
  /**
   * Make a new directory under this directory
   * @param string $name full path of the new dir to be made on server
   * @return ProdsDir the new directory just created (or already exists)
   */
-  public function mkdir($name)
+  // public function mkdir($name)
+  public function mkdir($name,
+                        $get_cb=array('RODSConnManager','getConn'),
+                        $rel_cb=array('RODSConnManager', 'releaseConn'))
   {
-    $conn = RODSConnManager::getConn($this->account);
+    //$conn = RODSConnManager::getConn($this->account);
+    $conn = call_user_func($get_cb, &$this->account);
     $conn->mkdir($this->path_str."/$name");
-    RODSConnManager::releaseConn($conn); 
+    //RODSConnManager::releaseConn($conn);
+    call_user_func($rel_cb, $conn);
     return (new ProdsDir($this->account, $this->path_str."/$name"));
   }
-  
+
  /**
   * remove this directory
   * @param boolean $recursive whether recursively delete all child files and child directories recursively.
@@ -187,33 +196,106 @@ class ProdsDir extends ProdsPath
   * @param array   $additional_flags An array of keyval pairs (array) reprenting additional flags passed to the server/client message. Each keyval pair is an array with first element repsenting the key, and second element representing the value (default to ''). Supported keys are:
   * -    'irodsRmTrash' - whether this rm is a rmtrash operation
   * -    'irodsAdminRmTrash' - whether this rm is a rmtrash operation done by admin user
+  * @param mixed   $status_update_func It can be an string or array that represents the status update function (see http://us.php.net/manual/en/language.pseudo-types.php#language.types.callback), which can update status based on the server status update. Leave it blank or 'null' if there is no need to update the status. The function will be called with an assossive arry as parameter, supported fields are:
+  * - 'filesCnt' - finished number of files from previous update (normally 10 but not the last update)
+  * - 'lastObjPath' - last object that was processed.
+  * If this function returns 1, progress will be stopped.
   */
-  public function rmdir($recursive=true,$force=false, $additional_flags=array())
+  // public function rmdir($recursive=true,$force=false, $additional_flags=array(),
+  //  $status_update_func=null)
+  public function rmdir($recursive=true,$force=false, $additional_flags=array(),
+                        $status_update_func=null,
+                        $get_cb=array('RODSConnManager','getConn'),
+                        $rel_cb=array('RODSConnManager', 'releaseConn'))
   {
-    $conn = RODSConnManager::getConn($this->account);
-    $conn->rmdir($this->path_str, $recursive, $force);
-    RODSConnManager::releaseConn($conn); 
+    //$conn = RODSConnManager::getConn($this->account);
+    $conn = call_user_func($get_cb, &$this->account);
+    $conn->rmdir($this->path_str, $recursive, $force, $additional_flags,
+      $status_update_func);
+    // RODSConnManager::releaseConn($conn);
+    call_user_func($rel_cb, $conn);
   }
-  
+
  /**
   * get the dir stats
   * @param boolean $force_reload If stats already present in the object, and this flag is true, a force reload will be done.
   * @return RODSDirStats the stats object, note that if this object will not refresh unless $force_reload flag is used.
   */
-  public function getStats($force_reload=false)
+  // public function getStats($force_reload=false)
+  public function getStats($force_reload=false,
+                            $get_cb=array('RODSConnManager','getConn'),
+                            $rel_cb=array('RODSConnManager', 'releaseConn'))
   {
     if ( ($force_reload===false)&&($this->stats) )
       return $this->stats;
-    
-    $conn = RODSConnManager::getConn($this->account);
+
+    //$conn = RODSConnManager::getConn($this->account);
+    $conn = call_user_func($get_cb, &$this->account);
     $stats=$conn->getDirStats($this->path_str);
-    RODSConnManager::releaseConn($conn); 
-    
+    //RODSConnManager::releaseConn($conn);
+    call_user_func($rel_cb, $conn);
+
     if ($stats===false) $this->stats=NULL;
     else $this->stats=$stats;
     return $this->stats;
   }
-  
+
+ /**
+  * get the dir statistics, such as total number of files under this dir
+  * @param string $fld Name of the statistics, supported values are:
+  * - num_dirs number of directories
+  * - num_files number of files
+  * @param boolean $recursive wheather recursively through the sub collections, default is true.
+  * @return result, an integer value, assosiated with the query.
+  */
+  //public function queryStatistics($fld, $recursive=true)
+  public function queryStatistics($fld, $recursive=true,
+                                    $get_cb=array('RODSConnManager','getConn'),
+                                    $rel_cb=array('RODSConnManager', 'releaseConn'))
+  {
+    $condition=new RODSGenQueConds();
+    $select=new RODSGenQueSelFlds();
+    $ret_data_index='';
+      switch($fld)
+      {
+        case 'num_dirs' :
+          $select->add('COL_COLL_ID', 'count');
+          $ret_data_index='COL_COLL_ID';
+          if ($recursive===true)
+            $condition->add('COL_COLL_NAME', 'like', $this->path_str.'/%');
+          else
+            $condition->add('COL_COLL_PARENT_NAME', '=', $this->path_str);
+          break;
+        case 'num_files' :
+          $select->add('COL_D_DATA_ID', 'count');
+          $ret_data_index='COL_D_DATA_ID';
+          if ($recursive===true)
+            $condition->add('COL_COLL_NAME', 'like', $this->path_str.'/%',
+              array(array('op' => '=','val' => $this->path_str)));
+          else
+            $condition->add('COL_COLL_NAME', '=', $this->path_str);
+          break;
+        default :
+          throw new RODSException("Query field '$fld' not supported!",
+            'PERR_USER_INPUT_ERROR');
+      }
+
+    //$conn = RODSConnManager::getConn($this->account);
+    $conn = call_user_func($get_cb, &$this->account);
+    $results = $conn->query($select, $condition);
+    //RODSConnManager::releaseConn($conn);
+    call_user_func($rel_cb, $conn);
+    $result_values=$results->getValues();
+
+    if (isset($result_values[$ret_data_index][0]))
+      return intval($result_values[$ret_data_index][0]);
+    else
+    {
+      throw new RODSException("Query did not get value back with expected ".
+        "index: $ret_data_index!", 'GENERAL_PRODS_ERR');
+    }
+  }
+
  /**
   * query metadata, and find matching files.
   * @param array $terms an assositive array of search conditions, supported ones are:
@@ -235,21 +317,24 @@ class ProdsDir extends ProdsPath
   * -     'mtime'     - last modified time
   * -     'ctime'     - creation time
   * -     'owner'     - owner of the file
-  * -     'typename'  - file/data type 
+  * -     'typename'  - file/data type
   * -     'dirname'   - directory/collection name for the file
   * The results are sorted by specified array keys.
-  * The possible array value must be boolean: true stands for 'asc' and false stands for 'desc', default is 'asc'  
+  * The possible array value must be boolean: true stands for 'asc' and false stands for 'desc', default is 'asc'
   * @return array of ProdsPath objects (ProdsFile or ProdsDir).
   */
+  //public function findFiles(array $terms, &$total_count, $start=0, $limit=-1, array $sort_flds=array())
   public function findFiles(array $terms, &$total_count, $start=0, $limit=-1,
-    array $sort_flds=array())
+                            array $sort_flds=array(),
+                            $get_cb=array('RODSConnManager','getConn'),
+                            $rel_cb=array('RODSConnManager', 'releaseConn'))
   {
     $flds=array("COL_DATA_NAME"=>NULL,"COL_D_DATA_ID"=>NULL,
         "COL_DATA_TYPE_NAME"=>NULL, "COL_D_RESC_NAME"=>NULL,
         "COL_DATA_SIZE"=>NULL,"COL_D_OWNER_NAME"=>NULL, "COL_D_OWNER_ZONE"=>NULL,
         "COL_D_CREATE_TIME"=>NULL, "COL_D_MODIFY_TIME"=>NULL,
         "COL_COLL_NAME"=>NULL, "COL_D_COMMENTS"=>NULL);
-    
+
     foreach($sort_flds as $sort_fld_key => $sort_fld_val)
     {
       switch($sort_fld_key)
@@ -260,57 +345,59 @@ class ProdsDir extends ProdsPath
           else
             $flds['COL_DATA_NAME']='order_by_asc';
           break;
-        
+
         case 'size':
           if ($sort_fld_val===false)
             $flds['COL_DATA_SIZE']='order_by_desc';
           else
             $flds['COL_DATA_SIZE']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'mtime':
           if ($sort_fld_val===false)
             $flds['COL_D_MODIFY_TIME']='order_by_desc';
           else
             $flds['COL_D_MODIFY_TIME']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'ctime':
           if ($sort_fld_val===false)
             $flds['COL_D_CREATE_TIME']='order_by_desc';
           else
             $flds['COL_D_CREATE_TIME']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'typename':
           if ($sort_fld_val===false)
             $flds['COL_DATA_TYPE_NAME']='order_by_desc';
           else
             $flds['COL_DATA_TYPE_NAME']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'owner':
           if ($sort_fld_val===false)
             $flds['COL_D_OWNER_NAME']='order_by_desc';
           else
             $flds['COL_D_OWNER_NAME']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'dirname':
           if ($sort_fld_val===false)
             $flds['COL_COLL_NAME']='order_by_desc';
           else
             $flds['COL_COLL_NAME']='order_by_asc';
-          break;  
-              
+          break;
+
         default:
+          /*
           throw new RODSException("Sort field name '$sort_fld_key' is not valid",
             'PERR_USER_INPUT_ERROR');
           break;
+          */
       }
-    }    
+    }
     $select=new RODSGenQueSelFlds(array_keys($flds), array_values($flds));
-    
+
     $descendantOnly=false;
     $recursive=false;
     $logicalFile=false;
@@ -320,7 +407,8 @@ class ProdsDir extends ProdsPath
       switch ($term_key)
       {
         case 'name':
-          $condition->add('COL_DATA_NAME', 'like', '%'.$term_val.'%');
+          //$condition->add('COL_DATA_NAME', 'like', '%'.$term_val.'%');
+          $condition->add('COL_DATA_NAME', 'like', $term_val);
           break;
         case 'smtime':
           $condition->add('COL_D_MODIFY_TIME', '>=', $term_val);
@@ -330,10 +418,10 @@ class ProdsDir extends ProdsPath
           break;
         case 'owner':
           $condition->add('COL_D_OWNER_NAME', '=', $term_val);
-          break;   
+          break;
         case 'ownerzone':
           $condition->add('COL_D_OWNER_ZONE', '=', $term_val);
-          break;  
+          break;
         case 'rescname':
           $condition->add('COL_D_RESC_NAME', '=', $term_val);
         case 'metadata':
@@ -346,43 +434,45 @@ class ProdsDir extends ProdsPath
             else
               $op='=';
             if ($op=='like')
-              $value='%'.$meta->value.'%';
+              //$value='%'.$meta->value.'%';
+              $value=$meta->value;
             else
-              $value=$meta->value;  
+              $value=$meta->value;
             $condition->add('COL_META_DATA_ATTR_VALUE', $op, $value);
           }
           break;
-        
+
         case 'descendantOnly':
           if (true===$term_val)
             $descendantOnly=true;
           break;
-        
+
         case 'recursive':
           if (true===$term_val)
             $recursive=true;
           break;
-          
+
         case 'logicalFile':
           if (true===$term_val)
             $logicalFile=true;
-          break;  
-          
+          break;
+
         default:
           throw new RODSException("Term field name '$term_key' is not valid",
             'PERR_USER_INPUT_ERROR');
           break;
-      } 
+      }
     }
-    
-    if ($descendantOnly===true) 
+
+    if ($descendantOnly===true)
     {
       if ($recursive===true)
-        $condition->add('COL_COLL_NAME', 'like', $this->path_str.'%');
+        $condition->add('COL_COLL_NAME', 'like', $this->path_str.'/%',
+          array(array('op'=>'=','val'=>$this->path_str)));
       else
-        $condition->add('COL_COLL_NAME', '=', $this->path_str);    
+        $condition->add('COL_COLL_NAME', '=', $this->path_str);
     }
-    
+
     if ($logicalFile===true)
     {
       $select->update('COL_D_RESC_NAME','count');
@@ -390,11 +480,13 @@ class ProdsDir extends ProdsPath
       $select->update('COL_D_CREATE_TIME','min');
       $select->update('COL_D_MODIFY_TIME','max');
     }
-    
-    $conn = RODSConnManager::getConn($this->account);
+
+    //$conn = RODSConnManager::getConn($this->account);
+    $conn = call_user_func($get_cb, &$this->account);
     $results = $conn->query($select, $condition, $start, $limit);
-    RODSConnManager::releaseConn($conn); 
-    
+    //RODSConnManager::releaseConn($conn);
+    call_user_func($rel_cb, $conn);
+
     $total_count=$results->getTotalCount();
     $result_values=$results->getValues();
     $found=array();
@@ -415,7 +507,7 @@ class ProdsDir extends ProdsPath
           $result_values['COL_D_COMMENTS'][$i],
           $num_replica
       );
-      
+
       if ($result_values['COL_COLL_NAME'][$i]=='/')
         $full_path='/'.$result_values['COL_DATA_NAME'][$i];
       else
@@ -425,7 +517,7 @@ class ProdsDir extends ProdsPath
     }
     return $found;
   }
-  
+
  /**
   * query metadata, and find matching diretories.
   * @param array $terms an assositive array of search conditions, supported ones are:
@@ -445,7 +537,7 @@ class ProdsDir extends ProdsPath
   * -     'ctime'     - creation time
   * -     'owner'     - owner of the dir
   * The results are sorted by specified array keys.
-  * The possible array value must be boolean: true stands for 'asc' and false stands for 'desc', default is 'asc'  
+  * The possible array value must be boolean: true stands for 'asc' and false stands for 'desc', default is 'asc'
   * @return array of ProdsPath objects (ProdsFile or ProdsDir).
   */
   public function findDirs(array $terms, &$total_count, $start=0, $limit=-1,
@@ -455,7 +547,7 @@ class ProdsDir extends ProdsPath
         "COL_COLL_OWNER_NAME"=>NULL, 'COL_COLL_OWNER_ZONE'=>NULL,
         "COL_COLL_CREATE_TIME"=>NULL,"COL_COLL_MODIFY_TIME"=>NULL,
         "COL_COLL_COMMENTS"=>NULL);
-    
+
     foreach($sort_flds as $sort_fld_key => $sort_fld_val)
     {
       switch($sort_fld_key)
@@ -466,36 +558,38 @@ class ProdsDir extends ProdsPath
           else
             $flds['COL_COLL_NAME']='order_by_asc';
           break;
-        
+
         case 'mtime':
           if ($sort_fld_val===false)
             $flds['COL_COLL_MODIFY_TIME']='order_by_desc';
           else
             $flds['COL_COLL_MODIFY_TIME']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'ctime':
           if ($sort_fld_val===false)
             $flds['COL_COLL_CREATE_TIME']='order_by_desc';
           else
             $flds['COL_COLL_CREATE_TIME']='order_by_asc';
-          break; 
-        
+          break;
+
         case 'owner':
           if ($sort_fld_val===false)
             $flds['COL_COLL_OWNER_NAME']='order_by_desc';
           else
             $flds['COL_COLL_OWNER_NAME']='order_by_asc';
-          break; 
-        
+          break;
+
         default:
+          /*
           throw new RODSException("Sort field name '$sort_fld_key' is not valid",
             'PERR_USER_INPUT_ERROR');
+          */
           break;
       }
     }
     $select=new RODSGenQueSelFlds(array_keys($flds), array_values($flds));
-    
+
     $descendantOnly=false;
     $recursive=false;
     $condition=new RODSGenQueConds();
@@ -504,7 +598,8 @@ class ProdsDir extends ProdsPath
       switch ($term_key)
       {
         case 'name':
-          $condition->add('COL_COLL_NAME', 'like', '%'.$term_val.'%');
+          //$condition->add('COL_COLL_NAME', 'like', '%'.$term_val.'%');
+          $condition->add('COL_COLL_NAME', 'like', $term_val);
           break;
         case 'smtime':
           $condition->add('COL_COLL_MODIFY_TIME', '>=', $term_val);
@@ -514,57 +609,59 @@ class ProdsDir extends ProdsPath
           break;
         case 'owner':
           $condition->add('COL_COLL_OWNER_NAME', '=', $term_val);
-          break;  
+          break;
         case 'metadata':
           $meta_array=$term_val;
           foreach($meta_array as $meta)
           {
-            $condition->add('COL_META_DATA_ATTR_NAME', '=', $meta->name);
+            $condition->add('COL_META_COLL_ATTR_NAME', '=', $meta->name);
             if (isset($meta->op))
               $op=$meta->op;
             else
               $op='=';
             if ($op=='like')
-              $value='%'.$meta->value.'%';
+              //$value='%'.$meta->value.'%';
+              $value=$meta->value;
             else
-              $value=$meta->value;  
-            $condition->add('COL_META_DATA_ATTR_VALUE', $op, $value);
+              $value=$meta->value;
+            $condition->add('COL_META_COLL_ATTR_VALUE', $op, $value);
           }
           break;
-        
+
         case 'descendantOnly':
           if (true===$term_val)
             $descendantOnly=true;
           break;
-        
+
         case 'recursive':
           if (true===$term_val)
             $recursive=true;
           break;
-          
+
         default:
           throw new RODSException("Term field name '$term_key' is not valid",
             'PERR_USER_INPUT_ERROR');
           break;
-      } 
+      }
     }
-    
-    if ($descendantOnly===true) 
+
+    if ($descendantOnly===true)
     {
       // eliminate '/' from children, if current path is already root
       if ($this->path_str=='/')
         $condition->add('COL_COLL_NAME', '<>', '/');
-        
+
       if ($recursive===true)
-        $condition->add('COL_COLL_PARENT_NAME', 'like', $this->path_str.'%');
+        $condition->add('COL_COLL_PARENT_NAME', 'like', $this->path_str.'/%',
+          array(array('op'=>'=','val'=>$this->path_str)));
       else
-        $condition->add('COL_COLL_PARENT_NAME', '=', $this->path_str);    
+        $condition->add('COL_COLL_PARENT_NAME', '=', $this->path_str);
     }
-    
+
     $conn = RODSConnManager::getConn($this->account);
     $results = $conn->query($select, $condition, $start, $limit);
-    RODSConnManager::releaseConn($conn); 
-    
+    RODSConnManager::releaseConn($conn);
+
     $total_count=$results->getTotalCount();
     $result_values=$results->getValues();
     $found=array();
@@ -580,9 +677,9 @@ class ProdsDir extends ProdsPath
           $result_values['COL_COLL_CREATE_TIME'][$i],
           $result_values['COL_COLL_ID'][$i],
           $result_values['COL_COLL_COMMENTS'][$i]);
-      
+
       $found[]=new ProdsDir($this->account, $full_path, false, $stats);
     }
     return $found;
-  }    
+  }
 }

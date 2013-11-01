@@ -50,8 +50,14 @@ class RODSGenQueConds
   
  /**
   * Add a single select field.
+  * @param string $name names of the field, which must be one defined in file 'RodsGenQueryNum.inc.php'.
+  * @param string $op logical operator, such as '=' 'like' '>'
+  * @param string $val value of the filed
+  * @param array  an array of tuples of extra op's and val's, each tuple is an assosive array that has key 'op' and 'val'. These conditions will be 'OR' with the other conditions. 
+  * for example add ('COL_D_DATA_ID','like', '/tempZone/home/rods/%', array(array('op'=>'=','val'=>'/tempZone/home/rods'")))
+  * would select all file ids both in subdirectories under '/tempZone/home/rods' and directly under '/tempZone/home/rods'
   */
-  public function add($name, $op, $val)
+  public function add($name, $op, $val, array $OR_ops_vals=array())
   {
     require_once("RodsGenQueryNum.inc.php"); //load magic numbers 
     require_once("RodsGenQueryKeyWd.inc.php"); //load magic keywords
@@ -60,14 +66,32 @@ class RODSGenQueConds
     {
       $this->cond['names'][]=$name;
       $this->cond['sysnames'][]=$GLOBALS['PRODS_GENQUE_NUMS']["$name"];
-      $this->cond['values'][]="$op '$val'";
+      $value="$op '$val'";
+      foreach ($OR_ops_vals as $op_val)
+      {
+        $or_op=$op_val['op'];
+        $or_val=$op_val['val'];
+        if (empty($or_op)||empty($or_val))
+          continue;
+        $value=$value." || $or_op '$or_val'";
+      }
+      $this->cond['values'][]=$value; 
     }
     else
     if (isset($GLOBALS['PRODS_GENQUE_KEYWD']["$name"]))
     {
       $this->cond_kw['names'][]=$name;
       $this->cond_kw['sysnames'][]=$GLOBALS['PRODS_GENQUE_KEYWD']["$name"];
-      $this->cond_kw['values'][]="$op '$val'";  
+      $value="$op '$val'";
+      foreach ($OR_ops_vals as $op_val)
+      {
+        $or_op=$op_val['op'];
+        $or_val=$op_val['val'];
+        if (empty($or_op)||empty($or_val))
+          continue;
+        $value=$value." || $or_op '$or_val'";
+      }
+      $this->cond_kw['values'][]=$value;  
     }
     else
     {
@@ -92,6 +116,11 @@ class RODSGenQueConds
   {
     return ( new RP_KeyValPair(count($this->cond_kw['names']), 
       $this->cond_kw['sysnames'], $this->cond_kw['values']) );
+  }
+
+  public function getCond()
+  {
+      return $this->cond;
   }
 }
 ?>

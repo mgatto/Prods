@@ -71,7 +71,12 @@ class RODSMessage
   
   public function unpack($conn, &$bslen=NULL)
   {
-    $chunk=stream_get_contents($conn,4);
+    if (FALSE===($chunk=stream_get_contents($conn,4)))
+    {
+      throw new RODSException("RODSMessage::unpack failed.0! ",
+        "SYS_PACK_INSTRUCT_FORMAT_ERR");
+    }
+      
     
     $arr= unpack("Nlen",$chunk); 
     $header_len=$arr['len'];
@@ -173,6 +178,11 @@ class RODSMessage
   public function getBinstr()
   {
     return $this->binstr;
+  }
+  
+  public function getXML()
+  {
+    return $this->header_xml."\n".$this->msg_xml;
   }
   
   public static function packConnectMsg($user,$zone, $relVersion=RODS_REL_VERSION, 

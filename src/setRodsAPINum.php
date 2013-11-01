@@ -1,8 +1,9 @@
 <?php
-  $RODS_tree_root=dirname(__FILE__)."/../../..";
+  $PRODS_tree_root=dirname(__FILE__)."/../../..";
+  $RODS_tree_root="/opt/sifang/iRODS";
   
   $capi_api_num_file=$RODS_tree_root."/lib/api/include/apiNumber.h";
-  $prods_api_num_file=$RODS_tree_root."/clients/prods/src/RodsAPINum.inc.php";
+  $prods_api_num_file=$PRODS_tree_root."/clients/prods/src/RodsAPINum.inc.php";
   
   
   // Add more API number here, if you wish. It will be added to the default 
